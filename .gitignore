@@ -34,3 +34,6 @@ uploaded_pdfs/
 # 배포용 SQLite seed DB만 GitHub에 포함
 data/*
 !data/dental_tutor_deploy.db
+
+# 원본 예상문제 DOCX는 GitHub에 올리지 않음
+expected_uploads/

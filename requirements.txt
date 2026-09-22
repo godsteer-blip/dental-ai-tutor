@@ -6,3 +6,4 @@ Pillow
 google-genai
 pydantic
 firebase-admin
+python-docx

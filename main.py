@@ -6,7 +6,7 @@ import re
 import sqlite3
 
 import pymupdf
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, UploadFile, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 
@@ -25,6 +25,11 @@ CONFIG = BASE_DIR / "firebase_config.js"
 UPLOAD_DIR.mkdir(exist_ok=True)
 DATA_DIR.mkdir(exist_ok=True)
 CHUNK_DIR.mkdir(exist_ok=True)
+
+
+# ==================== QUESTION_BANK_V4 ====================
+from expected_bank_v4 import ALL_SUBJECTS, expected_stats, get_random_expected, import_docx_to_db, init_expected_tables
+from mock_exam_v4 import SESSION_SUBJECT_QUOTAS, generate_question as generate_ai_mock_question, init_mock_tables, start_session as start_ai_mock_session, subject_for_index as mock_subject_for_index
 
 app = FastAPI(
     title="치위생학과 AI 튜터",
@@ -789,9 +794,9 @@ def home():
             <button
                 class="hero-button dark"
                 type="button"
-                onclick="location.href='/study?mode=random'"
+                onclick="location.href='/mock-exam'"
             >
-                랜덤 기출
+                AI 모의고사
             </button>
 
         </div>
@@ -1505,21 +1510,7 @@ def study_page():
 
 
         <div class="slots">
-
-            <button
-                class="slot active"
-                type="button"
-                onclick="openPanel('concept', this)"
-            >
-                <div class="slot-icon">📖</div>
-                <div class="slot-title">개념</div>
-                <div class="slot-desc">
-                    요약본에서 핵심 개념을 공부합니다.
-                </div>
-            </button>
-
-
-            <button
+<button
                 class="slot"
                 type="button"
                 onclick="openPanel('exam', this)"
@@ -1535,12 +1526,12 @@ def study_page():
             <button
                 class="slot"
                 type="button"
-                onclick="openPanel('ai', this)"
+                onclick="location.href='/expected?subject=' + encodeURIComponent(subject)"
             >
-                <div class="slot-icon">🤖</div>
-                <div class="slot-title">AI 문제</div>
+                <div class="slot-icon">📚</div>
+                <div class="slot-title">예상문제</div>
                 <div class="slot-desc">
-                    요약본과 시험문제를 바탕으로 문제를 생성합니다.
+                    내가 업로드한 해당 과목 예상문제를 랜덤으로 풉니다.
                 </div>
             </button>
 
@@ -1551,7 +1542,7 @@ def study_page():
                 onclick="openPanel('wrong', this)"
             >
                 <div class="slot-icon">❌</div>
-                <div class="slot-title">오답노트</div>
+                <div class="slot-title">오답정리</div>
                 <div class="slot-desc">
                     틀린 문제와 취약 개념을 모아봅니다.
                 </div>
@@ -1561,63 +1552,6 @@ def study_page():
 
     </section>
 
-
-    <!-- 개념 -->
-    <section
-        class="panel active"
-        id="panel-concept"
-    >
-
-        <div class="panel-card">
-
-            <h2 class="panel-title">
-                개념 공부
-            </h2>
-
-            <p class="panel-subtitle">
-                이 과목의 요약본을 바탕으로 핵심 개념을 검색하고 읽을 수 있습니다.
-            </p>
-
-            <div style="display:flex;gap:8px;margin-top:20px;">
-                <input
-                    id="conceptQuery"
-                    type="text"
-                    placeholder="예: 선예도, 치은절제술, 법랑질저형성증..."
-                    style="
-                        flex:1;
-                        min-width:0;
-                        border:1px solid #e4e4e7;
-                        border-radius:13px;
-                        padding:12px 14px;
-                        outline:none;
-                    "
-                >
-                <button
-                    type="button"
-                    onclick="searchConcepts()"
-                    style="
-                        border:none;
-                        border-radius:13px;
-                        padding:12px 16px;
-                        background:#18181b;
-                        color:white;
-                        font-weight:800;
-                        cursor:pointer;
-                    "
-                >
-                    검색
-                </button>
-            </div>
-
-            <div id="conceptResults" style="margin-top:18px;">
-                <div class="loading">
-                    요약본에서 개념을 불러오는 중...
-                </div>
-            </div>
-
-        </div>
-
-    </section>
 
 
     <!-- 시험문제 -->
@@ -1741,46 +1675,8 @@ def study_page():
     </section>
 
 
-    <!-- AI 문제 -->
-    <section
-        class="panel"
-        id="panel-ai"
-    >
 
-        <div class="panel-card">
-
-            <h2 class="panel-title">
-                AI 문제
-            </h2>
-
-            <p class="panel-subtitle">
-                이 슬롯은 해당 과목의 요약본과 시험문제를 함께 참고해
-                새로운 문제를 생성하는 영역입니다.
-            </p>
-
-            <div class="placeholder">
-
-                <div class="placeholder-icon">
-                    🤖
-                </div>
-
-                <div class="placeholder-title">
-                    요약본 + 시험문제 기반 문제 생성
-                </div>
-
-                <div class="placeholder-text">
-                    데이터 연결과 검수 구조를 먼저 완성한 뒤
-                    Gemini 생성 기능을 연결합니다.
-                </div>
-
-            </div>
-
-        </div>
-
-    </section>
-
-
-    <!-- 오답노트 -->
+    <!-- 오답정리 -->
     <section
         class="panel"
         id="panel-wrong"
@@ -1789,7 +1685,7 @@ def study_page():
         <div class="panel-card">
 
             <h2 class="panel-title">
-                오답노트
+                오답정리
             </h2>
 
             <p class="panel-subtitle">
@@ -1803,7 +1699,7 @@ def study_page():
                 </div>
 
                 <div class="placeholder-title">
-                    오답노트 준비 중
+                    오답정리 준비 중
                 </div>
 
                 <div class="placeholder-text">
@@ -2201,9 +2097,7 @@ function renderQuestion() {
         </div>
 
 
-        <h2 class="question">
-            ${escapeHtml(q.question_text)}
-        </h2>
+        <h2 class="question">${escapeHtml(cleanQuestionText(q.question_text))}</h2>
 
 
         <div class="choices">
@@ -2257,7 +2151,7 @@ function renderQuestion() {
                 font-weight:750;
             "
         >
-            📖 관련 개념 보기
+            📚 기출문제 해설
         </button>
 
         <div
@@ -2280,6 +2174,18 @@ function renderQuestion() {
 }
 
 
+
+function cleanQuestionText(value) {
+    return String(value || "")
+        .replace(/\u00A0/g, " ")
+        .replace(/\r\n/g, "\n")
+        .split("\n")
+        .map(line => line.replace(/^[\s\u00A0]+/, "").replace(/[\s\u00A0]+$/, ""))
+        .filter(line => line.length > 0)
+        .join("\n")
+        .trim();
+}
+
 async function showRelatedConcepts() {
     const box = document.getElementById("relatedConcepts");
 
@@ -2288,70 +2194,125 @@ async function showRelatedConcepts() {
     }
 
     box.innerHTML = `
-        <div style="
-            padding:14px;
-            border-radius:13px;
-            background:#fafafa;
-            color:#71717a;
-            font-size:12px;
-        ">
-            🤖 AI 해설을 생성하는 중...
+        <div style="padding:14px 15px 10px;font-size:15px;font-weight:900;color:#18181b;">📚 기출문제 해설</div>
+        <div style="margin:0 15px 14px;padding:15px;border:1px solid #e4e4e7;border-radius:13px;background:#fff;font-size:14px;line-height:1.8;color:#27272a;">
+            해설을 불러오는 중...
         </div>
     `;
 
     try {
-        const response = await fetch(
-            "/api/ai-explanation/" + currentQuestion.id
-        );
-
+        const response = await fetch("/api/ai-explanation/" + currentQuestion.id);
         const data = await response.json();
 
-        const aiText =
-            data.explanation ||
-            "해당 문제의 상세 해설은 교과서·요약집을 참조하세요.";
+        if (!data.success) {
+            throw new Error("explanation_load_failed");
+        }
+
+        const cleanText = (value) => {
+            return String(value || "")
+                .replace(/\u00A0/g, " ")
+                .replace(/\r\n/g, "\n")
+                .split("\n")
+                .map(line => line.replace(/^[\s\u00A0]+/, "").replace(/[\s\u00A0]+$/, ""))
+                .filter(line => line.length > 0)
+                .join("\n")
+                .trim();
+        };
+
+        const answerReason = cleanText(data.answer_reason);
+        const choiceExplanations = data.choice_explanations || {};
+        const memoryPoint = cleanText(data.memory_point);
+
+        const choiceHtml = Object.keys(choiceExplanations)
+            .sort((a, b) => Number(a) - Number(b))
+            .map(number => {
+                const text = cleanText(choiceExplanations[number]);
+                const isCorrect = Number(number) === Number(data.answer);
+
+                return `
+                    <div style="
+                        display:flex;
+                        align-items:flex-start;
+                        gap:12px;
+                        margin-bottom:9px;
+                        padding:13px 14px;
+                        border:1px solid ${isCorrect ? "#f1b7c4" : "#d9e1ea"};
+                        border-radius:11px;
+                        background:#fff;
+                        font-size:14px;
+                        line-height:1.8;
+                        color:#27272a;
+                        box-sizing:border-box;
+                    ">
+                        <span style="
+                            flex:0 0 30px;
+                            width:30px;
+                            height:30px;
+                            display:flex;
+                            align-items:center;
+                            justify-content:center;
+                            border-radius:50%;
+                            background:${isCorrect ? "#d92d5b" : "#eef2f7"};
+                            color:${isCorrect ? "#fff" : "#18181b"};
+                            font-size:14px;
+                            font-weight:900;
+                        ">${number}</span>
+                        <div style="flex:1;min-width:0;margin:0;padding:0;white-space:normal;overflow-wrap:anywhere;">${escapeHtml(text)}</div>
+                    </div>
+                `;
+            })
+            .join("");
+
+        const memoryHtml = memoryPoint
+            .split("\n")
+            .map(line => line.trim())
+            .filter(Boolean)
+            .map(line => `
+                <div style="display:flex;align-items:flex-start;gap:9px;margin:0 0 7px;padding:0;font-size:14px;line-height:1.8;">
+                    <span style="font-weight:900;">•</span>
+                    <span style="flex:1;">${escapeHtml(line)}</span>
+                </div>
+            `)
+            .join("");
 
         box.innerHTML = `
-            <div style="
-                padding:14px 15px 8px;
-                font-size:13px;
-                font-weight:900;
-                color:#18181b;
-            ">
-                🤖 AI 문제 해설
+            <div style="padding:14px 15px 10px;font-size:15px;font-weight:900;color:#18181b;">
+                📚 기출문제 해설
             </div>
 
-            <div style="
-                margin:0 15px 14px;
-                padding:15px;
-                border:1px solid #e4e4e7;
-                border-radius:13px;
-                background:#fff;
-                font-size:12px;
-                line-height:1.75;
-                white-space:pre-wrap;
-                color:#27272a;
-            ">
-                ${escapeHtml(aiText)}
+            <div style="margin:0 15px 10px;padding:15px;border:1px solid #f0c5ce;border-radius:13px;background:#fff7f8;box-sizing:border-box;">
+                <div style="margin-bottom:9px;font-size:15px;font-weight:900;color:#18181b;">
+                    📌 정답 이유
+                </div>
+                <div style="margin:0;padding:0;font-size:14px;line-height:1.8;white-space:normal;overflow-wrap:anywhere;color:#27272a;">
+                    ${escapeHtml(answerReason).replace(/\n/g, "<br>")}
+                </div>
+            </div>
+
+            <div style="margin:0 15px 10px;padding:15px;border:1px solid #c9ddf5;border-radius:13px;background:#f7fbff;box-sizing:border-box;">
+                <div style="margin-bottom:10px;font-size:15px;font-weight:900;color:#18181b;">
+                    🔎 선택지별 해설
+                </div>
+                ${choiceHtml}
+            </div>
+
+            <div style="margin:0 15px 14px;padding:15px;border:1px solid #c8ead5;border-radius:13px;background:#f7fff9;box-sizing:border-box;">
+                <div style="margin-bottom:9px;font-size:15px;font-weight:900;color:#18181b;">
+                    🧠 암기 포인트
+                </div>
+                <div style="margin:0;padding:0;color:#27272a;">
+                    ${memoryHtml}
+                </div>
             </div>
         `;
-
     } catch (error) {
         box.innerHTML = `
-            <div style="
-                padding:14px;
-                border-radius:13px;
-                background:#fafafa;
-                color:#71717a;
-                font-size:12px;
-                line-height:1.7;
-            ">
-                🤖 AI 해설을 불러오지 못했습니다.<br>
-                해당 문제의 상세 해설은 교과서·요약집을 참조하세요.
+            <div style="margin:0 15px 14px;padding:14px;border-radius:13px;background:#fafafa;color:#71717a;font-size:14px;line-height:1.8;">
+                해설을 불러오지 못했습니다.
             </div>
         `;
     }
 }
-
 function selectChoiceInternal(number) {
 
     if (
@@ -2428,7 +2389,6 @@ function selectChoiceInternal(number) {
         .textContent = "다음 문제 →";
 
 
-    showRelatedConcepts();
 }
 
 
@@ -3167,26 +3127,75 @@ def health():
         "database_exists": DB_PATH.exists(),
     }
 
-# ==================== AI_EXPLANATION_V1 ====================
-
-try:
-    from ai_explanation import get_ai_explanation
-except Exception:
-    get_ai_explanation = None
-
-
 @app.get("/api/ai-explanation/{question_id}")
 def api_ai_explanation(question_id: int):
+    """
+    기출문제 FINAL 해설 조회.
+    Gemini를 호출하지 않고 exam_explanations_final에서
+    정답 이유 / 선택지별 해설 / 암기 포인트를 반환한다.
+    """
 
-    if get_ai_explanation is None:
+    conn = get_db()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                f.exam_year,
+                f.session,
+                f.question_number,
+                f.answer,
+                f.answer_choice,
+                f.answer_reason,
+                f.choice_explanations_json,
+                f.memory_point,
+                f.confidence,
+                f.review_status
+            FROM exam_questions q
+            JOIN exam_explanations_final f
+                ON f.exam_year = q.exam_year
+                AND f.session = q.session
+                AND f.question_number = q.question_number
+            WHERE q.id = ?
+            """,
+            (question_id,),
+        )
+
+        row = cursor.fetchone()
+
+        if row is None:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "success": False,
+                    "message": "해당 문제의 FINAL 해설을 찾을 수 없습니다.",
+                },
+            )
+
+        choice_explanations = json.loads(
+            row["choice_explanations_json"] or "{}"
+        )
+
         return {
             "success": True,
-            "mode": "fallback",
-            "explanation": "해당 문제의 상세 해설은 교과서·요약집을 참조하세요.",
-            "evidence_count": 0,
+            "mode": "final_written",
+            "exam_year": row["exam_year"],
+            "session": row["session"],
+            "question_number": row["question_number"],
+            "answer": row["answer"],
+            "answer_choice": row["answer_choice"],
+            "answer_reason": row["answer_reason"] or "",
+            "choice_explanations": choice_explanations,
+            "memory_point": row["memory_point"] or "",
+            "confidence": row["confidence"] or "",
+            "review_status": row["review_status"] or "",
         }
 
-    return get_ai_explanation(question_id)
+    finally:
+        conn.close()
+
 
 # ============================================================
 # Firebase Admin 인증
@@ -3388,3 +3397,547 @@ async def api_record_attempt(request: Request):
     }
 
 # ATTEMPT_UI_SYNC_V3_COMPLETE
+# ==================== QUESTION_BANK_AND_MOCK_V4 ====================
+
+def _v4_db_path():
+    return Path(os.getenv("DENTAL_DB_PATH", str(Path(__file__).resolve().parent / "data" / "dental_tutor.db")))
+
+
+def _v4_conn():
+    conn = sqlite3.connect(_v4_db_path())
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _v4_user_id(request: Request):
+    try:
+        verifier = globals().get("_verify_firebase_request")
+        if verifier is None:
+            return None
+        user = verifier(request)
+        if not user:
+            return None
+        uid = user.get("uid") if isinstance(user, dict) else None
+        if not uid:
+            return None
+        conn = _v4_conn()
+        try:
+            row = conn.execute("SELECT id FROM users WHERE firebase_uid=?", (uid,)).fetchone()
+            return row[0] if row else None
+        finally:
+            conn.close()
+    except Exception:
+        return None
+
+
+def _v4_shell(title, body, script=""):
+    return f'''<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title}</title>
+<style>
+*{{box-sizing:border-box}}
+body{{margin:0;background:#f6f6f7;color:#18181b;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic",Arial,sans-serif}}
+.wrap{{max-width:1080px;margin:0 auto;padding:34px 18px 64px}}
+.top{{display:flex;justify-content:space-between;gap:15px;align-items:flex-start;margin-bottom:22px}}
+h1{{margin:0;font-size:28px;letter-spacing:-.04em}}
+.sub{{margin-top:7px;color:#71717a;font-size:13px;line-height:1.6}}
+.grid{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px}}
+.card,.quiz,.upload,.wrong{{background:#fff;border:1px solid #e4e4e7;border-radius:18px;padding:18px;box-shadow:0 5px 22px rgba(0,0,0,.04)}}
+.card{{cursor:pointer;text-align:left;transition:.15s ease}}
+.card:hover{{transform:translateY(-2px);border-color:#a1a1aa}}
+.title{{font-weight:800;font-size:16px}}
+.count{{margin-top:7px;color:#71717a;font-size:13px}}
+button{{font:inherit;border:none;border-radius:12px;padding:11px 14px;cursor:pointer;font-weight:800}}
+.dark{{background:#18181b;color:white}} .light{{background:#f4f4f5;color:#18181b}}
+.choice{{display:block;width:100%;text-align:left;background:#fafafa;border:1px solid #e4e4e7;margin:8px 0}}
+.choice.selected{{border-color:#18181b;background:#f4f4f5}}
+.choice.correct{{border-color:#52525b;background:#f4f4f5}}
+.choice.wrong{{border-color:#d4d4d8;background:#fafafa}}
+.ok{{padding:14px;border-radius:12px;background:#f4f4f5;margin-top:14px;line-height:1.72}}
+.row{{display:flex;gap:10px;flex-wrap:wrap;align-items:center}}
+progress{{width:100%;height:12px}}
+.list{{display:grid;gap:10px;margin-top:15px}}
+.small{{font-size:12px;color:#71717a}}
+@media(max-width:760px){{.grid{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
+@media(max-width:520px){{.grid{{grid-template-columns:1fr}}.wrap{{padding-top:20px}}}}
+</style>
+</head><body><div class="wrap">{body}</div><script>{script}</script></body></html>'''
+
+
+@app.get("/expected", response_class=HTMLResponse)
+def expected_page(subject: str | None = None):
+    body = f'''
+    <div class="top"><div><h1>예상문제</h1><div class="sub"><div class="sub"></div></div></div><a class="light" href="/study?subject={json.dumps(subject or '')}">뒤로</a></div>
+    <div id="subjectGrid" class="grid"></div>
+    <div id="quizBox" style="display:none;margin-top:20px"></div>
+    '''
+    script = r'''
+    const fixedSubject = %s;
+    let current=null, selected=null;
+    function esc(v){return String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;')}
+    async function loadSubjects(){
+      const grid=document.getElementById('subjectGrid');
+      if(fixedSubject){
+        grid.innerHTML=`<button class="card" onclick="loadQuestion(fixedSubject)"><div class="title">${esc(fixedSubject)}</div><div class="count">이 과목 예상문제 시작</div></button>`;
+        loadQuestion(fixedSubject); return;
+      }
+      const r=await fetch('/api/expected/stats'); const d=await r.json();
+      grid.innerHTML=(d.subjects||[]).map(x=>`<button class="card" onclick="loadQuestion('${esc(x.subject)}')"><div class="title">${esc(x.subject)}</div><div class="count">예상문제 ${x.total}문제</div></button>`).join('');
+    }
+    async function loadQuestion(subject){
+      const r=await fetch('/api/expected/random?subject='+encodeURIComponent(subject)); const d=await r.json();
+      if(!d.success){alert(d.message||'등록된 예상문제가 없습니다.');return}
+      current=d.question; selected=null; render();
+      document.getElementById('quizBox').style.display='block';
+      window.scrollTo({top:document.getElementById('quizBox').offsetTop-20,behavior:'smooth'});
+    }
+    function render(){const q=current;document.getElementById('quizBox').innerHTML=`<div class="quiz"><div class="small">${esc(q.subject)} · 예상문제 ${q.question_number}번</div><h2 style="font-size:21px;line-height:1.65">${esc(q.question_text)}</h2>${q.choices.map(c=>`<button class="choice ${selected===c.number?'selected':''}" onclick="choose(${c.number})">${c.number}. ${esc(c.text)}</button>`).join('')}<div class="row" style="margin-top:16px"><button class="dark" onclick="submitAnswer()">정답 확인</button><button class="light" onclick="loadQuestion(current.subject)">다른 문제</button></div><div id="result"></div></div>`}
+    function choose(n){selected=n;render()}
+    async function submitAnswer(){
+      if(selected===null){alert('보기를 선택하세요.');return}
+      const good=selected===current.answer;
+      const token=localStorage.getItem('firebase_id_token')||'';
+      let save='';
+      try{const r=await fetch('/api/expected/attempt',{method:'POST',headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},body:JSON.stringify({question_id:current.id,selected_choice:selected})}); const d=await r.json(); save=d.success?'풀이 기록이 저장되었습니다.':''}catch(e){}
+      document.getElementById('result').innerHTML=`<div class="ok"><strong>${good?'정답입니다.':'오답입니다.'}</strong><br>정답: ${current.answer}번<br><br>${esc(current.explanation||'해설이 등록되지 않은 문제입니다.')}<br><br><span class="small">${esc(save)}</span></div>`;
+    }
+    loadSubjects();
+    ''' % json.dumps(subject or '', ensure_ascii=False)
+    return HTMLResponse(_v4_shell("예상문제", body, script))
+
+
+@app.get("/api/expected/stats")
+def expected_stats_api_v4():
+    conn=_v4_conn()
+    try:
+        return {"success":True,"subjects":expected_stats(conn)}
+    finally: conn.close()
+
+
+@app.get("/api/expected/random")
+def expected_random_api_v4(subject: str):
+    conn=_v4_conn()
+    try:
+        row=get_random_expected(conn, subject)
+        if row is None:
+            return JSONResponse(status_code=404,content={"success":False,"message":f"{subject} 과목의 예상문제가 아직 없습니다."})
+        return {"success":True,"question":row}
+    finally: conn.close()
+
+
+@app.post("/api/expected/attempt")
+def expected_attempt_api_v4(request: Request, payload: dict):
+    conn=_v4_conn()
+    try:
+        init_expected_tables(conn)
+        qid=int(payload.get("question_id"))
+        selected=payload.get("selected_choice")
+        row=conn.execute("SELECT answer FROM expected_questions WHERE id=?",(qid,)).fetchone()
+        if not row:
+            return JSONResponse(status_code=404,content={"success":False,"message":"예상문제를 찾지 못했습니다."})
+        correct=int(row[0])
+        user_id=_v4_user_id(request)
+        good=int(selected)==correct
+        conn.execute("INSERT INTO expected_attempts(user_id,question_id,selected_choice,correct_choice,is_correct) VALUES(?,?,?,?,?)",(user_id, qid, selected, correct, int(good)))
+        conn.commit()
+        return {"success":True,"is_correct":good,"correct_choice":correct}
+    finally: conn.close()
+
+
+@app.get("/admin/expected", response_class=HTMLResponse)
+def expected_admin_v4():
+    body='''<div class="top"><div><h1>예상문제 문제은행</h1><div class="sub">DOCX 여러 개를 한 번에 업로드합니다. 파일명에서 과목을 자동 인식합니다.</div></div><button class="light" style="font-weight:700;font-size:16px;padding:10px 20px;min-width:90px;cursor:pointer" onclick="location.href='/'">← 홈으로</button></div><div class="upload"><input id="files" type="file" accept=".docx" multiple><button class="dark" onclick="uploadAll()">문제은행에 추가</button><div id="status" style="margin-top:14px;line-height:1.8"></div></div>'''
+    script=r'''
+    function esc(v){return String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')}
+    async function uploadAll(){
+      const files=[...document.getElementById('files').files]; if(!files.length){alert('DOCX 파일을 선택하세요.');return}
+      const token=localStorage.getItem('firebase_id_token')||''; let out=[];
+      for(const f of files){const fd=new FormData();fd.append('file',f);const r=await fetch('/api/expected/import',{method:'POST',body:fd,headers:token?{Authorization:'Bearer '+token}:{}});const d=await r.json();out.push(d.message||f.name)}
+      document.getElementById('status').innerHTML=out.map(x=>`• ${esc(x)}`).join('<br>');
+    }
+    '''
+    return HTMLResponse(_v4_shell("예상문제 업로드", body, script))
+
+
+@app.post("/api/expected/import")
+async def expected_import_api_v4(request: Request, file: UploadFile = File(...)):
+    if _v4_user_id(request) is None:
+        return JSONResponse(status_code=401,content={"success":False,"message":"로그인 후 업로드하세요."})
+    filename=Path(file.filename or "uploaded.docx").name
+    if not filename.lower().endswith('.docx'):
+        return JSONResponse(status_code=400,content={"success":False,"message":"DOCX만 업로드할 수 있습니다."})
+    data=await file.read()
+    conn=_v4_conn()
+    try:
+        return import_docx_to_db(conn,data,filename)
+    except Exception as e:
+        conn.rollback()
+        return JSONResponse(status_code=400,content={"success":False,"message":f"{filename}: {type(e).__name__}: {e}"})
+    finally: conn.close()
+
+
+@app.get("/mock-exam", response_class=HTMLResponse)
+def mock_exam_v4():
+    body='''<div class="top"><div><h1>AI 모의고사</h1><div class="sub">1교시 100문제 / 2교시 100문제. 실제 국가시험의 과목별 문항 수를 그대로 적용합니다.</div></div><button class="light" onclick="location.href='/'">홈</button></div><div class="grid"><button class="card" onclick="start(1)"><div class="title">1교시 AI 모의고사</div><div class="count">100문제</div></button><button class="card" onclick="start(2)"><div class="title">2교시 AI 모의고사</div><div class="count">100문제</div></button></div><div id="quizBox" style="display:none;margin-top:20px"></div>'''
+    script=r'''
+    let sessionId=null, sessionNo=null, index=1, q=null, selected=null, answered=false;
+
+    function esc(v){
+        return String(v??'')
+            .replaceAll('&','&amp;')
+            .replaceAll('<','&lt;')
+            .replaceAll('>','&gt;')
+            .replaceAll('"','&quot;')
+            .replaceAll("'",'&#039;');
+    }
+
+    async function start(s){
+        const token=localStorage.getItem('firebase_id_token')||'';
+        const r=await fetch('/api/mock-exam/start?session='+s,{
+            method:'POST',
+            headers:token?{Authorization:'Bearer '+token}:{}
+        });
+        const d=await r.json();
+        if(!d.success){
+            alert(d.message||'모의고사를 시작할 수 없습니다.');
+            return;
+        }
+        sessionId=d.session_id;
+        sessionNo=s;
+        index=1;
+        await next();
+    }
+
+    async function next(){
+        const box=document.getElementById('quizBox');
+        box.style.display='block';
+        box.innerHTML='<div class="quiz"><div class="small">문제를 불러오는 중입니다...</div></div>';
+
+        const r=await fetch(`/api/mock-exam/${sessionId}/question/${index}`);
+        const d=await r.json();
+        if(!d.success){
+            alert(d.message||'문제를 불러오지 못했습니다.');
+            return;
+        }
+
+        q=d.question;
+        selected=null;
+        answered=false;
+        render();
+
+        window.scrollTo({
+            top:box.offsetTop-20,
+            behavior:'smooth'
+        });
+    }
+
+    function render(){
+        document.getElementById('quizBox').innerHTML=`
+        <div class="quiz">
+            <div class="small">${sessionNo}교시 · ${index}/100 · ${esc(q.subject)}</div>
+            <progress max="100" value="${index}"></progress>
+            <h2 style="font-size:20px;line-height:1.65">${esc(q.question_text)}</h2>
+            ${q.choices.map((c,i)=>`
+                <button
+                    class="choice ${selected===i+1?'selected':''}"
+                    onclick="choose(${i+1})"
+                    ${answered?'disabled':''}
+                >${i+1}. ${esc(c)}</button>
+            `).join('')}
+            <div class="row" style="margin-top:16px">
+                <button class="dark" onclick="answer()" ${answered?'disabled':''}>정답 확인</button>
+            </div>
+            <div id="result"></div>
+        </div>`;
+    }
+
+    function choose(n){
+        if(answered) return;
+        selected=n;
+        render();
+    }
+
+    async function answer(){
+        if(answered) return;
+        if(selected===null){
+            alert('보기를 선택하세요.');
+            return;
+        }
+
+        const token=localStorage.getItem('firebase_id_token')||'';
+        const r=await fetch('/api/mock-exam/answer',{
+            method:'POST',
+            headers:{
+                'Content-Type':'application/json',
+                ...(token?{Authorization:'Bearer '+token}:{})
+            },
+            body:JSON.stringify({
+                session_id:sessionId,
+                question_id:q.id,
+                selected_choice:selected
+            })
+        });
+
+        const d=await r.json();
+        if(!d.success){
+            alert(d.message||'정답 처리 중 오류가 발생했습니다.');
+            return;
+        }
+
+        answered=true;
+        render();
+
+        document.getElementById('result').innerHTML=`
+            <div class="ok">
+                <strong>${d.is_correct?'정답입니다.':'오답입니다.'}</strong>
+                <br>정답: ${d.correct_choice}번
+                <br><br>${esc(q.explanation||'해설이 없습니다.')}
+            </div>
+            <div style="margin-top:14px">
+                <button
+                    class="dark"
+                    onclick="${index<100?'index+=1;next()':'finish()'}"
+                >${index<100?'다음 문제':'모의고사 종료'}</button>
+            </div>`;
+    }
+
+    async function finish(){
+        const box=document.getElementById('quizBox');
+        box.innerHTML='<div class="quiz"><div class="small">채점 결과를 계산하는 중입니다...</div></div>';
+
+        const r=await fetch(`/api/mock-exam/${sessionId}/result`);
+        const d=await r.json();
+
+        if(!d.success){
+            box.innerHTML=`<div class="quiz"><h2>결과를 불러오지 못했습니다.</h2><div class="small">${esc(d.message||'다시 시도해주세요.')}</div></div>`;
+            return;
+        }
+
+        const subjects=(d.subjects||[]).map(s=>`
+            <div style="
+                display:grid;
+                grid-template-columns:1fr auto;
+                gap:12px;
+                padding:12px 0;
+                border-bottom:1px solid #e4e4e7;
+            ">
+                <div>
+                    <strong>${esc(s.subject)}</strong>
+                    <div class="small">${s.correct}/${s.answered} 정답</div>
+                </div>
+                <div style="font-weight:800">${s.accuracy}%</div>
+            </div>
+        `).join('');
+
+        box.innerHTML=`
+        <div class="quiz">
+            <div class="small">${sessionNo}교시 AI 모의고사 결과</div>
+            <h2 style="font-size:26px;margin-bottom:6px">모의고사를 완료했습니다.</h2>
+
+            <div style="
+                display:grid;
+                grid-template-columns:repeat(2,minmax(0,1fr));
+                gap:10px;
+                margin:18px 0;
+            ">
+                <div class="ok" style="text-align:center">
+                    <div class="small">점수</div>
+                    <div style="font-size:28px;font-weight:900">${d.score}점</div>
+                </div>
+                <div class="ok" style="text-align:center">
+                    <div class="small">정답률</div>
+                    <div style="font-size:28px;font-weight:900">${d.accuracy}%</div>
+                </div>
+                <div class="ok" style="text-align:center">
+                    <div class="small">정답</div>
+                    <div style="font-size:22px;font-weight:900">${d.correct}문제</div>
+                </div>
+                <div class="ok" style="text-align:center">
+                    <div class="small">오답</div>
+                    <div style="font-size:22px;font-weight:900">${d.wrong}문제</div>
+                </div>
+            </div>
+
+            <div class="small" style="margin-bottom:8px">
+                응답 ${d.answered}/${d.total_questions}문제
+            </div>
+
+            <h3 style="margin-top:22px">과목별 결과</h3>
+            <div>${subjects||'<div class="small">과목별 결과가 없습니다.</div>'}</div>
+
+            <div class="row" style="margin-top:20px">
+                <button class="dark" onclick="location.href='/wrong'">오답정리 보기</button>
+                <button class="light" onclick="location.href='/mock-exam'">다시 풀기</button>
+                <button class="light" onclick="location.href='/'">홈</button>
+            </div>
+        </div>`;
+
+        window.scrollTo({top:box.offsetTop-20,behavior:'smooth'});
+    }
+
+    '''
+    return HTMLResponse(_v4_shell("AI 모의고사", body, script))
+
+
+@app.post("/api/mock-exam/start")
+def mock_start_api_v4(request: Request, session: int):
+    user_id=_v4_user_id(request)
+    conn=_v4_conn()
+    try:
+        return {"success":True,**start_ai_mock_session(conn,session,user_id)}
+    except Exception as e:
+        return JSONResponse(status_code=400,content={"success":False,"message":str(e)})
+    finally: conn.close()
+
+
+@app.get("/api/mock-exam/{session_id}/question/{index}")
+def mock_question_api_v4(session_id: int, index: int):
+    conn=_v4_conn()
+    try:
+        init_mock_tables(conn)
+        session=conn.execute("SELECT * FROM ai_mock_sessions WHERE id=?",(session_id,)).fetchone()
+        if not session:
+            return JSONResponse(status_code=404,content={"success":False,"message":"모의고사를 찾지 못했습니다."})
+        if not 1 <= index <= int(session[3]):
+            return JSONResponse(status_code=400,content={"success":False,"message":f"문제 번호는 1~{session[3]}입니다."})
+        existing=conn.execute("SELECT * FROM ai_mock_questions WHERE session_id=? AND question_index=?",(session_id,index)).fetchone()
+        if existing:
+            return {"success":True,"question":{"id":existing[0],"subject":existing[4],"question_text":existing[5],"choices":json.loads(existing[6]),"answer":existing[7],"explanation":existing[8]}}
+        q=generate_ai_mock_question(conn,int(session[2]),index,session_id)
+        cur=conn.cursor();cur.execute("INSERT INTO ai_mock_questions(session_id,question_index,session_no,subject,question_text,choices_json,correct_choice,explanation) VALUES(?,?,?,?,?,?,?,?)",(session_id,index,int(session[2]),q['subject'],q['question_text'],json.dumps(q['choices'],ensure_ascii=False),q['answer'],q['explanation']))
+        qid=cur.lastrowid;conn.commit()
+        return {"success":True,"question":{"id":qid,"subject":q['subject'],"question_text":q['question_text'],"choices":q['choices'],"answer":q['answer'],"explanation":q['explanation']}}
+    except Exception as e:
+        return JSONResponse(status_code=500,content={"success":False,"message":f"AI 출제 오류: {type(e).__name__}: {e}"})
+    finally: conn.close()
+
+
+@app.post("/api/mock-exam/answer")
+def mock_answer_api_v4(request: Request, payload: dict):
+    conn=_v4_conn()
+    try:
+        init_mock_tables(conn)
+        session_id=int(payload.get('session_id')); qid=int(payload.get('question_id')); selected=payload.get('selected_choice')
+        row=conn.execute("SELECT correct_choice FROM ai_mock_questions WHERE id=? AND session_id=?",(qid,session_id)).fetchone()
+        if not row:
+            return JSONResponse(status_code=404,content={"success":False,"message":"문제를 찾지 못했습니다."})
+        correct=int(row[0]); good=int(selected)==correct
+        user_id=_v4_user_id(request)
+        conn.execute("DELETE FROM ai_mock_attempts WHERE session_id=? AND mock_question_id=?",(session_id,qid))
+        conn.execute("INSERT INTO ai_mock_attempts(session_id,mock_question_id,user_id,selected_choice,correct_choice,is_correct) VALUES(?,?,?,?,?,?)",(session_id,qid,user_id,selected,correct,int(good)))
+        conn.commit()
+        return {"success":True,"is_correct":good,"correct_choice":correct}
+    finally: conn.close()
+
+
+
+@app.get("/api/mock-exam/{session_id}/result")
+def mock_result_api_v4(session_id: int):
+    conn=_v4_conn()
+    try:
+        init_mock_tables(conn)
+
+        session=conn.execute(
+            "SELECT * FROM ai_mock_sessions WHERE id=?",
+            (session_id,),
+        ).fetchone()
+
+        if not session:
+            return JSONResponse(
+                status_code=404,
+                content={"success":False,"message":"모의고사를 찾지 못했습니다."},
+            )
+
+        total_questions=int(session["total_questions"])
+
+        overall=conn.execute(
+            '''
+            SELECT
+                COUNT(*) AS answered,
+                COALESCE(SUM(is_correct),0) AS correct
+            FROM ai_mock_attempts
+            WHERE session_id=?
+            ''',
+            (session_id,),
+        ).fetchone()
+
+        answered=int(overall["answered"] or 0)
+        correct=int(overall["correct"] or 0)
+        wrong=max(answered-correct,0)
+        accuracy=round((correct/answered)*100,1) if answered else 0.0
+        score=round((correct/total_questions)*100,1) if total_questions else 0.0
+
+        subject_rows=conn.execute(
+            '''
+            SELECT
+                q.subject AS subject,
+                COUNT(a.id) AS answered,
+                COALESCE(SUM(a.is_correct),0) AS correct
+            FROM ai_mock_questions q
+            LEFT JOIN ai_mock_attempts a
+              ON a.mock_question_id=q.id
+             AND a.session_id=q.session_id
+            WHERE q.session_id=?
+            GROUP BY q.subject
+            ORDER BY MIN(q.question_index)
+            ''',
+            (session_id,),
+        ).fetchall()
+
+        subjects=[]
+        for row in subject_rows:
+            s_answered=int(row["answered"] or 0)
+            s_correct=int(row["correct"] or 0)
+            subjects.append({
+                "subject":row["subject"],
+                "answered":s_answered,
+                "correct":s_correct,
+                "wrong":max(s_answered-s_correct,0),
+                "accuracy":round((s_correct/s_answered)*100,1) if s_answered else 0.0,
+            })
+
+        return {
+            "success":True,
+            "session_id":session_id,
+            "session":int(session["session_no"]),
+            "total_questions":total_questions,
+            "answered":answered,
+            "correct":correct,
+            "wrong":wrong,
+            "accuracy":accuracy,
+            "score":score,
+            "subjects":subjects,
+        }
+    finally:
+        conn.close()
+
+
+@app.get("/wrong", response_class=HTMLResponse)
+def wrong_page_v4(request: Request):
+    uid=_v4_user_id(request)
+    if uid is None:
+        return HTMLResponse(_v4_shell("오답정리", '<div class="wrong"><h1>로그인이 필요합니다.</h1><p class="sub">로그인 후 문제풀이 기록을 확인할 수 있습니다.</p></div>'))
+    conn=_v4_conn()
+    try:
+        rows=[]
+        try:
+            rows += [dict(r) for r in conn.execute("SELECT '시험문제' kind,q.subject,q.question_text,a.created_at FROM question_attempts a JOIN exam_questions q ON q.id=a.question_id WHERE a.user_id=? AND a.is_correct=0 ORDER BY a.created_at DESC LIMIT 100",(uid,)).fetchall()]
+        except Exception:
+            pass
+        try:
+            rows += [dict(r) for r in conn.execute("SELECT '예상문제' kind,q.subject,q.question_text,a.created_at FROM expected_attempts a JOIN expected_questions q ON q.id=a.question_id WHERE a.user_id=? AND a.is_correct=0 ORDER BY a.created_at DESC LIMIT 100",(uid,)).fetchall()]
+        except Exception:
+            pass
+        try:
+            rows += [dict(r) for r in conn.execute("SELECT 'AI 모의고사' kind,q.subject,q.question_text,a.created_at FROM ai_mock_attempts a JOIN ai_mock_questions q ON q.id=a.mock_question_id WHERE a.user_id=? AND a.is_correct=0 ORDER BY a.created_at DESC LIMIT 100",(uid,)).fetchall()]
+        except Exception:
+            pass
+        body='<div class="top"><div><h1>오답정리</h1><div class="sub">시험문제와 예상문제에서 틀린 기록을 모아봅니다.</div></div><button class="light" onclick="location.href='/'">홈</button></div>'
+        body += '<div class="list">' + ''.join(f'<div class="wrong"><div><strong>{str(r.get("kind",""))}</strong> · {str(r.get("subject",""))}</div><div style="margin-top:7px;line-height:1.6">{str(r.get("question_text",""))}</div><div class="small" style="margin-top:6px">{str(r.get("created_at",""))}</div></div>' for r in rows)
+        body += '</div>' if rows else '<div class="wrong"><h2>오답 기록이 없습니다.</h2></div>'
+        return HTMLResponse(_v4_shell("오답정리",body))
+    finally: conn.close()
+
