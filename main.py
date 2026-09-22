@@ -2010,17 +2010,20 @@ async function loadQuestion() {
 
     try {
 
-        let url =
-            "/api/exam-random-question?subject=" +
-            encodeURIComponent(subject);
+        let url = "/api/exam-random-question";
+        const query = new URLSearchParams();
 
+        if (subject) {
+            query.set("subject", subject);
+        }
 
         if (selectedYear !== "all") {
+            query.set("year", selectedYear);
+        }
 
-            url +=
-                "&year=" +
-                encodeURIComponent(selectedYear);
-
+        const queryString = query.toString();
+        if (queryString) {
+            url += "?" + queryString;
         }
 
 
@@ -3808,7 +3811,52 @@ def mock_question_api_v4(session_id: int, index: int):
             return JSONResponse(status_code=400,content={"success":False,"message":f"문제 번호는 1~{session[3]}입니다."})
         existing=conn.execute("SELECT * FROM ai_mock_questions WHERE session_id=? AND question_index=?",(session_id,index)).fetchone()
         if existing:
-            return {"success":True,"question":{"id":existing[0],"subject":existing[4],"question_text":existing[5],"choices":json.loads(existing[6]),"answer":existing[7],"explanation":existing[8]}}
+            explanation = existing[8] or ""
+
+            if not explanation:
+                exam_row = conn.execute(
+                    "SELECT id FROM exam_questions WHERE subject=? AND question_text=? LIMIT 1",
+                    (existing[4], existing[5]),
+                ).fetchone()
+
+                if exam_row:
+                    final_row = conn.execute(
+                        "SELECT f.answer_reason, f.choice_explanations_json, f.memory_point "
+                        "FROM exam_questions q "
+                        "JOIN exam_explanations_final f "
+                        "ON f.exam_year=q.exam_year AND f.session=q.session "
+                        "AND f.question_number=q.question_number "
+                        "WHERE q.id=?",
+                        (exam_row[0],),
+                    ).fetchone()
+
+                    if final_row:
+                        choice_data = json.loads(final_row[1] or "{}")
+                        choice_lines = [
+                            f"{number}. {str(choice_data[number] or '').strip()}"
+                            for number in sorted(choice_data, key=lambda value: int(value))
+                        ]
+                        parts = [
+                            "📌 정답 이유",
+                            str(final_row[0] or "").strip(),
+                            "",
+                            "🔎 선택지별 해설",
+                            "\n".join(choice_lines),
+                        ]
+                        memory_point = str(final_row[2] or "").strip()
+                        if memory_point:
+                            parts.extend(["", "🧠 암기 포인트", memory_point])
+                        explanation = "\n".join(
+                            part for part in parts if part != ""
+                        ).strip()
+
+                        conn.execute(
+                            "UPDATE ai_mock_questions SET explanation=? WHERE id=?",
+                            (explanation, existing[0]),
+                        )
+                        conn.commit()
+
+            return {"success":True,"question":{"id":existing[0],"subject":existing[4],"question_text":existing[5],"choices":json.loads(existing[6]),"answer":existing[7],"explanation":explanation}}
         q=generate_ai_mock_question(conn,int(session[2]),index,session_id)
         cur=conn.cursor();cur.execute("INSERT INTO ai_mock_questions(session_id,question_index,session_no,subject,question_text,choices_json,correct_choice,explanation) VALUES(?,?,?,?,?,?,?,?)",(session_id,index,int(session[2]),q['subject'],q['question_text'],json.dumps(q['choices'],ensure_ascii=False),q['answer'],q['explanation']))
         qid=cur.lastrowid;conn.commit()

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import re
@@ -310,9 +310,57 @@ def generate_question(conn: sqlite3.Connection, session: int, index: int, sessio
             (selected['id'],),
         ).fetchall()
         choices = [str(row['choice_text']).strip() for row in choice_rows]
-        # 기출문제 출제 시 Gemini를 자동 호출하지 않는다.
-        # AI 해설은 사용자가 요청할 때 별도 API에서 호출한다.
-        explanation = ''
+
+        final_row = conn.execute(
+            "SELECT f.answer_reason, f.choice_explanations_json, f.memory_point "
+            "FROM exam_questions q "
+            "JOIN exam_explanations_final f "
+            "ON f.exam_year=q.exam_year "
+            "AND f.session=q.session "
+            "AND f.question_number=q.question_number "
+            "WHERE q.id=?",
+            (selected['id'],),
+        ).fetchone()
+
+        if final_row:
+            import json
+
+            choice_data = json.loads(
+                final_row['choice_explanations_json'] or '{}'
+            )
+
+            choice_lines = [
+                f"{number}. {str(choice_data[number] or '').strip()}"
+                for number in sorted(
+                    choice_data,
+                    key=lambda value: int(value)
+                )
+            ]
+
+            parts = [
+                "📌 정답 이유",
+                str(final_row['answer_reason'] or '').strip(),
+                "",
+                "🔎 선택지별 해설",
+                "\n".join(choice_lines),
+            ]
+
+            memory_point = str(
+                final_row['memory_point'] or ''
+            ).strip()
+
+            if memory_point:
+                parts.extend([
+                    "",
+                    "🧠 암기 포인트",
+                    memory_point,
+                ])
+
+            explanation = "\n".join(
+                part for part in parts if part != ""
+            ).strip()
+        else:
+            explanation = ''
     else:
         choice_rows = conn.execute(
             'SELECT choice_number, choice_text FROM expected_choices WHERE question_id=? ORDER BY choice_number',
