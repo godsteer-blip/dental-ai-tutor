@@ -3501,6 +3501,39 @@ def expected_page(subject: str | None = None):
       window.scrollTo({top:document.getElementById('quizBox').offsetTop-20,behavior:'smooth'});
     }
     function render(){const q=current;document.getElementById('quizBox').innerHTML=`<div class="quiz"><div class="small">${esc(q.subject)} · 예상문제 ${q.question_number}번</div><h2 style="font-size:21px;line-height:1.65">${esc(q.question_text)}</h2>${q.choices.map(c=>`<button class="choice ${selected===c.number?'selected':''}" onclick="choose(${c.number})">${c.number}. ${esc(c.text)}</button>`).join('')}<div class="row" style="margin-top:16px"><button class="dark" onclick="submitAnswer()">정답 확인</button><button class="light" onclick="loadQuestion(current.subject)">다른 문제</button></div><div id="result"></div></div>`}
+    function renderMockExplanation(text){
+        const raw = String(text || '').trim();
+
+        if (!raw) {
+            return `
+                <div style="margin-top:14px;padding:14px 16px;border:1px solid #e5e7eb;border-radius:14px;background:#fff;font-size:14px;line-height:1.75">
+                    해설이 없습니다.
+                </div>`;
+        }
+
+        const sections = raw
+            .split(/\n(?=📌 정답 이유|🔎 선택지별 해설|🧠 암기 포인트)/)
+            .map(v => v.trim())
+            .filter(Boolean);
+
+        return sections.map(section => {
+            const lines = section.split(/\n/);
+            const title = lines.shift() || '';
+            const body = lines.join('\n').trim();
+
+            return `
+                <div style="margin-top:14px;padding:15px 16px;border:1px solid #e5e7eb;border-radius:14px;background:#fff">
+                    <div style="font-size:15px;font-weight:700;margin-bottom:9px">
+                        ${esc(title)}
+                    </div>
+                    <div style="font-size:14px;line-height:1.75;white-space:pre-line">
+                        ${esc(body)}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
     function choose(n){selected=n;render()}
     async function submitAnswer(){
       if(selected===null){alert('보기를 선택하세요.');return}
@@ -3700,7 +3733,7 @@ def mock_exam_v4():
             <div class="ok">
                 <strong>${d.is_correct?'정답입니다.':'오답입니다.'}</strong>
                 <br>정답: ${d.correct_choice}번
-                <br><br>${esc(q.explanation||'해설이 없습니다.')}
+                ${renderMockExplanation(q.explanation)}
             </div>
             <div style="margin-top:14px">
                 <button
