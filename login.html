@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>치위생학과 AI 튜터 · 로그인</title>
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:Arial,"Pretendard",sans-serif;background:#f5f7fb;color:#171a1f}
+    .card{width:min(440px,92vw);background:#fff;border:1px solid #e7eaf0;border-radius:22px;padding:32px;box-shadow:0 18px 50px rgba(20,30,50,.08)}
+    h1{margin:0 0 8px;font-size:26px}
+    .sub{margin:0 0 24px;color:#6b7280;font-size:14px}
+    label{display:block;font-size:13px;font-weight:700;margin:14px 0 7px}
+    input{width:100%;padding:13px 14px;border:1px solid #dfe3ea;border-radius:12px;font-size:15px;outline:none}
+    input:focus{border-color:#111827}
+    button{width:100%;border:0;border-radius:12px;padding:13px 14px;margin-top:14px;font-size:15px;font-weight:700;cursor:pointer}
+    .primary{background:#111827;color:#fff}
+    .google{background:#fff;color:#111827;border:1px solid #dfe3ea}
+    .row{display:flex;gap:10px}.row button{width:50%}
+    .status{min-height:22px;margin-top:14px;font-size:13px;color:#6b7280;line-height:1.5}
+    .divider{display:flex;align-items:center;gap:10px;color:#9ca3af;font-size:12px;margin:20px 0}
+    .divider:before,.divider:after{content:"";height:1px;background:#eceff3;flex:1}
+    .back{display:block;text-align:center;margin-top:18px;color:#6b7280;text-decoration:none;font-size:13px}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>로그인</h1>
+    <p class="sub">치위생학과 AI 튜터 학습 기록을 사용하려면 로그인하세요.</p>
+    <button id="googleBtn" class="google">Google로 계속하기</button>
+    <div class="divider">또는 이메일</div>
+    <label for="email">이메일</label>
+    <input id="email" type="email" autocomplete="email" placeholder="example@email.com">
+    <label for="password">비밀번호</label>
+    <input id="password" type="password" autocomplete="current-password" placeholder="비밀번호">
+    <div class="row">
+      <button id="loginBtn" class="primary">로그인</button>
+      <button id="signupBtn" class="google">회원가입</button>
+    </div>
+    <div id="status" class="status"></div>
+    <a class="back" href="/">← 메인으로 돌아가기</a>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
+    import {
+      getAuth, GoogleAuthProvider, signInWithPopup,
+      signInWithEmailAndPassword, createUserWithEmailAndPassword,
+      onAuthStateChanged
+    } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
+
+    const statusEl = document.getElementById("status");
+    const setStatus = (msg, error=false) => {
+      statusEl.textContent = msg;
+      statusEl.style.color = error ? "#b42318" : "#6b7280";
+    };
+
+    async function init() {
+      try {
+        const res = await fetch("/firebase-config.js", {cache:"no-store"});
+        if (!res.ok) throw new Error("Firebase 설정을 불러오지 못했습니다.");
+        const code = await res.text();
+
+        const fn = new Function(code + "\nreturn window.__FIREBASE_CONFIG__;");
+        const config = fn();
+        if (!config || !config.apiKey || !config.projectId) {
+          throw new Error("Firebase 설정값이 올바르지 않습니다.");
+        }
+
+        const app = initializeApp(config);
+        const auth = getAuth(app);
+        const googleProvider = new GoogleAuthProvider();
+
+        async function finishLogin(user) {
+          const token = await user.getIdToken(true);
+          localStorage.setItem("firebase_id_token", token);
+          localStorage.setItem("firebase_user", JSON.stringify({
+            uid: user.uid,
+            email: user.email || "",
+            displayName: user.displayName || ""
+          }));
+          window.location.href = "/";
+        }
+
+        document.getElementById("googleBtn").onclick = async () => {
+          setStatus("Google 로그인 중...");
+          try {
+            const result = await signInWithPopup(auth, googleProvider);
+            await finishLogin(result.user);
+          } catch (e) {
+            setStatus(e?.message || "Google 로그인에 실패했습니다.", true);
+          }
+        };
+
+        document.getElementById("loginBtn").onclick = async () => {
+          const email = document.getElementById("email").value.trim();
+          const password = document.getElementById("password").value;
+          if (!email || !password) {
+            setStatus("이메일과 비밀번호를 입력하세요.", true);
+            return;
+          }
+          setStatus("로그인 중...");
+          try {
+            const result = await signInWithEmailAndPassword(auth, email, password);
+            await finishLogin(result.user);
+          } catch (e) {
+            setStatus(e?.message || "로그인에 실패했습니다.", true);
+          }
+        };
+
+        document.getElementById("signupBtn").onclick = async () => {
+          const email = document.getElementById("email").value.trim();
+          const password = document.getElementById("password").value;
+          if (!email || !password) {
+            setStatus("회원가입할 이메일과 비밀번호를 입력하세요.", true);
+            return;
+          }
+          if (password.length < 6) {
+            setStatus("비밀번호는 6자 이상이어야 합니다.", true);
+            return;
+          }
+          setStatus("회원가입 중...");
+          try {
+            const result = await createUserWithEmailAndPassword(auth, email, password);
+            await finishLogin(result.user);
+          } catch (e) {
+            setStatus(e?.message || "회원가입에 실패했습니다.", true);
+          }
+        };
+
+        onAuthStateChanged(auth, user => {
+          if (user) {
+            setStatus("이미 로그인된 계정입니다. 메인으로 이동합니다.");
+          }
+        });
+      } catch (e) {
+        setStatus(e?.message || "로그인 시스템을 초기화하지 못했습니다.", true);
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>

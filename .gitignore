@@ -1,0 +1,36 @@
+﻿.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Firebase 서버 비공개 키
+serviceAccountKey.json
+*service-account*.json
+*firebase-adminsdk*.json
+
+# 로컬/개인 학습 DB
+data/*.db
+*.db
+
+# 임시/백업/자동 생성 파일
+py_archive/
+backup_test/
+*.log
+py_cleanup_report.json
+cleanup_manifest.json
+
+# Python 개발용 캐시
+.pytest_cache/
+.mypy_cache/
+
+# 환경변수
+.env
+.env.*
+
+# 배포하지 않는 로컬 자료
+chunks/
+uploaded_pdfs/
+
+# 배포용 SQLite seed DB만 GitHub에 포함
+data/*
+!data/dental_tutor_deploy.db
