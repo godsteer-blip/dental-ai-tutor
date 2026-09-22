@@ -813,27 +813,30 @@ def home():
 
     <section class="feature-grid">
 
-        <div class="feature-card">
-            <div class="feature-title">개념 학습</div>
+        <div class="feature-card" role="button" tabindex="0"
+             onclick="location.href='/study'">
+            <div class="feature-title">시험문제</div>
             <div class="feature-text">
-                강의자료와 요약자료를 기반으로
-                과목별 개념 학습 영역을 확장합니다.
+                2022~2025 치위생사 국가시험
+                기출문제를 과목별로 공부합니다.
             </div>
         </div>
 
-        <div class="feature-card">
-            <div class="feature-title">기출문제</div>
+        <div class="feature-card" role="button" tabindex="0"
+             onclick="location.href='/expected'">
+            <div class="feature-title">예상문제</div>
             <div class="feature-text">
-                연도와 과목을 선택해
-                필요한 문제만 집중해서 풉니다.
+                업로드된 예상문제 문제은행에서
+                실제 시험 형식으로 연습합니다.
             </div>
         </div>
 
-        <div class="feature-card">
-            <div class="feature-title">AI 튜터</div>
+        <div class="feature-card" role="button" tabindex="0"
+             onclick="location.href='/wrong'">
+            <div class="feature-title">오답정리</div>
             <div class="feature-text">
-                이후 RAG 기반으로 근거가 연결된
-                AI 질문·해설 기능을 붙입니다.
+                틀린 문제를 한곳에서 모아
+                다시 확인하고 복습합니다.
             </div>
         </div>
 
